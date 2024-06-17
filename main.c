@@ -17,11 +17,10 @@ static STMOD_HANDLER previous;
 SceUID thid;
 u32 mod_text_addr;
 
-u32 RegionAddr = 0x08800000;
-u32 Spawnpoint = 0x08800000;
-u32 MapCode = 0x08800000;
-u32 MissonCode = 0x08800000;
-int Coop = 0;
+u32 RegionAddr = 0x0;
+u32 Spawnpoint = 0x0;
+u32 MapCode = 0x0;
+u32 MissonCode = 0x0;
 
 int GetGameVersion()
 {
@@ -36,45 +35,40 @@ int GetGameVersion()
 int ptrx(u32 addr, u8 d)
 {
 	u32 ptr = 0x08800000;
-	
-	if (ReadInt(addr)>= 0x08800000) {
-		ptr = ReadInt(addr);
-		return ReadInt(ptr + d - 0x08800000);
+	u32 read_int = ReadInt(addr);
+	if (read_int >= 0x08800000 && read_int < 0x0A000000) {
+		ptr = read_int;
+		u32 calc_addr = ptr + d - 0x08800000;
+		if (calc_addr >= 0x0 && calc_addr < 0x01800000) {
+			return ReadInt(calc_addr);
+		}
 	}
-	else{
-		return 0;
-	}
-
+	return 0;
 }
 
 int module_thread()
 {
 	while (1)
 	{
-		
-		if (GetGameVersion() == 0) {
-
-			if (ReadChar(0x405800) == 0x2) {
-				Coop = 1;
-			}
-			else if (ReadChar(0x405800) != 0x2){
-				Coop = 0;
-			}
+		int game_version = GetGameVersion();
+		if (game_version == -1) {
+			// Handle error in determining game version
+			sceKernelDelayThread(10000);
+			continue;
 		}
-		else if (GetGameVersion() == 1) {
 
-			if (ReadChar(0x4069C0) == 0x2) {
-				Coop = 1;
-			}
-			else if (ReadChar(0x4069C0) != 0x2){
-				Coop = 0;
-			}
+		int Coop = 0;
+		u32 coop_addr = (game_version == 0) ? 0x405800 : 0x4069C0;
+		if (ReadChar(coop_addr) == 0x2) {
+			Coop = 1;
+		} else {
+			Coop = 0;
 		}
 
 		if (Coop == 1) {
 
-			//NPJH50435
-			if (GetGameVersion() == 0){
+			
+			if (game_version == 0){ //NPJH50435
 
 				//Balance
 				PatchInt(0x95914,0x34040150);
@@ -88,16 +82,19 @@ int module_thread()
 				//Better Ending
 				Nop(0x138E00);
 				PatchInt(0x138E10,0x34040034);
-				PatchInt(0x139050,0x3404000C);
+
+				//PatchInt(0x139050,0x3404000C);
+				if (ReadShort(0x4059CC) == 0x100) {
+					PatchChar(0x4059CC,0x1);
+				}
+				
 				// //Skip Opening
 				Nop(0xFD920);
 				PatchInt(0x1019f4,0x10000004);
 				PatchInt(0x101A1C,0x34020000);
 
 			}
-
-			//ULUS10582
-			if (GetGameVersion() == 1){
+			else if (game_version == 1){ //ULUS10582
 
 				//Balance
 				PatchInt(0x96244,0x34040150);
@@ -111,7 +108,12 @@ int module_thread()
 				//Better Ending
 				Nop(0x139730);
 				PatchInt(0x139740,0x34040034);
-				PatchInt(0x139980,0x3404000C);
+
+				//PatchInt(0x139980,0x3404000C);
+				if (ReadShort(0x406B8C) == 0x100) {
+					PatchChar(0x406B8C,0x1);
+				}
+
 				//Skip Opening
 				Nop(0xFE250);
 				PatchInt(0x102324,0x10000004);
@@ -128,8 +130,8 @@ int module_thread()
 
 				case 0xA3:
 				PatchInt(Spawnpoint,0x34050001);
-				PatchInt(MissonCode + 0x4,0x96);
-				PatchInt(MapCode,0x3404002D);
+				//PatchInt(MissonCode + 0x4,0x96);
+				//PatchInt(MapCode,0x3404002D);
 				break;
 				
 				case 0xAA:
@@ -150,7 +152,7 @@ int module_thread()
 
 				default:
 				PatchInt(Spawnpoint,0x95250006);
-				PatchInt(MapCode,0x96240004);
+				//PatchInt(MapCode,0x96240004);
 				// PatchInt(MissonCode + 0x4,ReadShort(MissonCode));
 
 				//imperfect : case 0x95: case 0x99: case 0x9D: case 0x9B: case 0xA0: case 0x9F: case 0xA1: case 0xAD: case 0xA4: case 0x97: case 0xAC: 
@@ -158,8 +160,8 @@ int module_thread()
 			}
 
 
+			if (0x0A000000 > ReadInt(RegionAddr) && ReadInt(RegionAddr) >= 0x08800000){
 
-			if (ReadInt(RegionAddr) >= 0x08800000) {
 
 				//1P
 				PatchInt(0x2000,ReadInt(RegionAddr));
@@ -175,32 +177,41 @@ int module_thread()
 				PatchInt(0x2028,ptrx(0x2024,0x90));
 				PatchInt(0x202C,ptrx(0x2028,0x0));
 
-				if (ReadInt(0x200C) >= 0x08800000 && ReadInt(0x2014) >= 0x08800000){
-				
+
+				//if (ReadInt(0x200C) > 0x08800000 && ReadInt(0x2014) > 0x08800000){
+				if (0x0A000000 > ReadInt(0x2014)  && ReadInt(0x2014) > 0x08800000){
+
 					//PVP
-					PatchChar(ReadInt(0x200C) - 0x08800000 + 0xA4,0x2);
-					PatchChar(ReadInt(0x2014) - 0x08800000 + 0x8,0x2);
-					PatchChar(ReadInt(0x2014) - 0x08800000 + 0x538,0x2);
+					u32 r200c = ReadInt(0x200C) - 0x08800000;
+					u32 r2014 = ReadInt(0x2014) - 0x08800000;
+					PatchChar(r200c + 0xA4,0x2);
+					PatchChar(r2014 + 0x8,0x2);
+					PatchChar(r2014 + 0x538,0x2);
 
 					//Balance
-					PatchShort(ReadInt(0x2014) - 0x08800000 + 0x7D0,0x150);
-					PatchShort(ReadInt(0x2014) - 0x08800000 + 0x7E0,0x80);
-
+					PatchShort(r2014 + 0x7D0,0x150);
+					PatchShort(r2014 + 0x7E0,0x80);
+				}
+				if (0x0A000000 > ReadInt(0x202C) && ReadInt(0x202C) > 0x08800000){
+					u32 r202c = ReadInt(0x202C) - 0x08800000;
+					//Balance
+					PatchShort(r202c + 0x7D0,0x150);
+					PatchShort(r202c + 0x7E0,0x80);
 				}
 
 
-				if (ReadInt(0x202C) >= 0x08800000){
-
-					//Balance
-					PatchShort(ReadInt(0x202C) - 0x08800000 + 0x7D0,0x150);
-					PatchShort(ReadInt(0x202C) - 0x08800000 + 0x7E0,0x80);
-					
-				}
 
 			}
+			if (0x0A000000 < ReadInt(RegionAddr) || ReadInt(RegionAddr) < 0x08800000){
+				//sceKernelDelayThread(1000000);
+				for (u32 i = 0x202C; i >= 0x2000; i -= 0x4){
+					Nop(i);
+				}
+			}
+
 		}
-		if (Coop == 0) {
-			if (GetGameVersion() == 0) {
+		else if (Coop == 0) {
+			if (game_version == 0) {
 
 				PatchInt(0x95914,0x8E24001C);
 				PatchInt(0x9592C,0x8E24002C);
@@ -208,19 +219,19 @@ int module_thread()
 				PatchInt(0x101238,0x5040006B);
 
 				PatchInt(0x88A7C,0x10A0004E);
-				PatchInt(0x8D3AC,0X9204005D);
-				PatchInt(0x8D544,0X10800059);
+				PatchInt(0x8D3AC,0x9204005D);
+				PatchInt(0x8D544,0x10800059);
 
 				PatchInt(0x138E00,0x02608025);
 				PatchInt(0x138E10,0x3404000D);
-				PatchInt(0x139050,0x3404000D);
+				//PatchInt(0x139050,0x3404000D);
 
-				PatchInt(0xFD920,0x0E21D62D);
+				PatchInt(0xFD920,0x0E21D3E1);
 				PatchInt(0x1019f4,0x12200004);
 				PatchInt(0x101A1C,0x34020001);
 
 			}
-			else if (GetGameVersion() == 1) {
+			else if (game_version == 1) {
 
 				PatchInt(0x96244,0x8E24001C);
 				PatchInt(0x9625C,0x8E24002C);
@@ -228,26 +239,21 @@ int module_thread()
 				PatchInt(0x101B68,0x5040006B);
 
 				PatchInt(0x893AC,0x10A0004E);
-				PatchInt(0x8DCDC,0X9204005D);
-				PatchInt(0x8DE74,0X10800059);
+				PatchInt(0x8DCDC,0x9204005D);
+				PatchInt(0x8DE74,0x10800059);
 
 				PatchInt(0x139730,0x02608025);
-				PatchInt(0x139740,0x10800006);
-				PatchInt(0x139980,0x3404000D);
+				PatchInt(0x139740,0x3404000D);
+				//PatchInt(0x139980,0x3404000D);
 				
 				PatchInt(0xFE250,0x0E21D62D);
 				PatchInt(0x102324,0x12200004);
 				PatchInt(0x10234C,0x34020001);
 			}
 		}
-		if(ReadInt(RegionAddr) < 0x08800000){
-			sceKernelDelayThread(3000000);
-			for (u32 i = 0x2000; i <= 0x202C; i += 0x4){
-				Nop(i);
-			}
-		}
 
-		sceKernelDelayThread(100000);	
+
+		sceKernelDelayThread(1000000);
 		sceKernelDcacheWritebackAll();
 		sceKernelIcacheClearAll();
 
