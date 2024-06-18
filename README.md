@@ -23,5 +23,6 @@ A plugin that turns the Co-op mode into a PvP mode for Naruto Shippuden: Ultimat
 
 ## Known Issues
 - Awakening is not implemented because it would break the balance even more.
+- Switching between Story Mode and PVP causes errors.
 ## Special Thanks
 - ermaccer for his plugin template that make it possible for me to turn my cheat codes into an actual plugin.
