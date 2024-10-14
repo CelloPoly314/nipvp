@@ -81,14 +81,17 @@ int module_thread()
 				Nop(0x8D544);
 				//Better Ending
 				Nop(0x138E00);
+
+				Nop(0x139054);// no more cache!
+
 				PatchInt(0x138E10,0x34040034);
 
-				//PatchInt(0x139050,0x3404000C);
-				if (ReadShort(0x4059CC) == 0x100) {
-					PatchChar(0x4059CC,0x1);
-				}
+				PatchInt(0x139050,0x3404000C);
+				// if (ReadShort(0x4059CC) == 0x100) {
+				// 	PatchChar(0x4059CC,0x1);
+				// }
 				
-				// //Skip Opening
+				//Skip Opening
 				Nop(0xFD920);
 				PatchInt(0x1019f4,0x10000004);
 				PatchInt(0x101A1C,0x34020000);
@@ -107,12 +110,15 @@ int module_thread()
 				Nop(0x8DE74);
 				//Better Ending
 				Nop(0x139730);
+
+				Nop(0x139984);// no more cache!
+				
 				PatchInt(0x139740,0x34040034);
 
-				//PatchInt(0x139980,0x3404000C);
-				if (ReadShort(0x406B8C) == 0x100) {
-					PatchChar(0x406B8C,0x1);
-				}
+				PatchInt(0x139980,0x3404000C);
+				// if (ReadShort(0x406B8C) == 0x100) {
+				// 	PatchChar(0x406B8C,0x1);
+				// }
 
 				//Skip Opening
 				Nop(0xFE250);
@@ -223,8 +229,10 @@ int module_thread()
 				PatchInt(0x8D544,0x10800059);
 
 				PatchInt(0x138E00,0x02608025);
+				PatchInt(0x139054,0x0E206928);
+
 				PatchInt(0x138E10,0x3404000D);
-				//PatchInt(0x139050,0x3404000D);
+				PatchInt(0x139050,0x3404000D);
 
 				PatchInt(0xFD920,0x0E21D3E1);
 				PatchInt(0x1019f4,0x12200004);
@@ -243,8 +251,10 @@ int module_thread()
 				PatchInt(0x8DE74,0x10800059);
 
 				PatchInt(0x139730,0x02608025);
+				PatchInt(0x139984,0x0E2069B6);
+
 				PatchInt(0x139740,0x3404000D);
-				//PatchInt(0x139980,0x3404000D);
+				PatchInt(0x139980,0x3404000D);
 				
 				PatchInt(0xFE250,0x0E21D62D);
 				PatchInt(0x102324,0x12200004);
@@ -253,7 +263,7 @@ int module_thread()
 		}
 
 
-		sceKernelDelayThread(1000000);
+		sceKernelDelayThread(500000);
 		sceKernelDcacheWritebackAll();
 		sceKernelIcacheClearAll();
 
@@ -315,7 +325,7 @@ int OnModuleStart(SceModule2 *mod) {
 
 int module_start(SceSize args, void *argp)
 {	
- 	sceKernelDelayThread(100000);
+ 	sceKernelDelayThread(1000000);
 	thid = sceKernelCreateThread("nipvp", module_thread, 0x18, 2048, 0, NULL);
 	if (sceIoDevctl("kemulator:", 0x00000003, NULL, 0, NULL, 0) == 0) {
 		SceUID modules[10];

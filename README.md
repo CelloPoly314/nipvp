@@ -8,7 +8,7 @@ A plugin that turns the Co-op mode into a PvP mode for Naruto Shippuden: Ultimat
 - Works on both JP and USA version (`NPJH50435`/`ULUS10582`).
 - Works on PSP, Vita and PPSSPP.
 ## Installation
-- Download [nipvp.prx](https://github.com/CelloPoly314/nipvp/releases/download/0.1/nipvp.prx) and copy it into `seplugins/` folder in the root of your storage.
+- Download [nipvp.prx](https://github.com/CelloPoly314/nipvp/releases/download/0.3/nipvp.prx) and copy it into `seplugins/` folder in the root of your storage.
 
   - For PS Vita, it should be `ux0:pspemu/seplugins/` by default.
 
@@ -19,10 +19,9 @@ A plugin that turns the Co-op mode into a PvP mode for Naruto Shippuden: Ultimat
   ```
   - If you're using PSP Go internal storage, write `ef0:/seplugins/nipvp.prx 1` instead.
 
-- For PPSSPP, Download [nipvp.zip](https://github.com/CelloPoly314/nipvp/releases/download/0.1/nipvp.zip) and extract the folder into `PPSSPP/PSP/PLUGINS/`
+- For PPSSPP, Download [nipvp.zip](https://github.com/CelloPoly314/nipvp/releases/download/0.3/nipvp.zip) and extract the folder into `PPSSPP/PSP/PLUGINS/`
 
 ## Known Issues
-- Game may randomly crash sometimes and I don't really know why.
 - Awakening is not implemented because it would break the balance even more.
 ## Special Thanks
 - ermaccer for his plugin template that make it possible for me to turn my cheat codes into an actual plugin.
