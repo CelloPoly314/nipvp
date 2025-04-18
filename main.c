@@ -131,75 +131,27 @@ static Patch instruction_patch_set2[] = {
     {}, // end
 };
 
-// ② 全局 buffer，保存 hook + instruction patches
 static Patch patches_buf[MAX_PATCHES];
-//    [0..FUNC_HOOK_NUM-1] = hook slots (by _start 动态写入)
-//    [FUNC_HOOK_NUM..]   = instruction slots (lazy init)
 
-// ③ 懒初始化获取 patches 数组
 static int patches_inited = 0;
 static Patch *patches_get(void) {
     if (!patches_inited) {
         patches_inited = 1;
-        // 只填 instruction 部分
         Patch *dst = patches_buf + FUNC_HOOK_NUM;
         Patch *src = (REF_BYTE(REGION_ADDR) == 0x0)
                     ? instruction_patch_set1
                     : instruction_patch_set2;
-        // 可选 memset(dst, 0, sizeof(Patch)*MAX_INST_PATCHES);
         for (int i = 0; i < MAX_INST_PATCHES && src[i].addr != 0; i++) {
             dst[i] = src[i];
         }
-        // 多余位置自动保持 {0,0,0}
+
     }
     return patches_buf;
 }
 
-// ④ 将原来的宏指向懒加载函数
 #undef patches
 #define patches (patches_get())
 
-// struct {
-//     Patch function_hook_patches[FUNC_HOOK_NUM], instruction_patches[];
-// } _patches = {
-//     .function_hook_patches = {},
-//     .instruction_patches = {
-//         // Remove enemies
-//         {0x08901238, 0x1000006B,},
-
-//         // 2P Health Bar
-//         {0x08888A7C, 0x00000000,},
-//         {0x0888D3AC, 0x00000000,},
-//         {0x0888D544, 0x00000000,},
-//         // Better Ending
-//         {0x08938E00, 0x00000000,},
-//         // No more cache!
-//         {0x08939054, 0x00000000,},
-
-//         {0x08938E10, 0x34040034,},
-//         // No reviving
-//         {0x08938e78, 0x34040008,},
-//         // Skip Opening
-//         {0x088FD920, 0x00000000,},
-//         {0x089019f4, 0x10000004,},
-//         {0x08901A1C, 0x34020000,},
-//         {0x08939a4c, 0x00000000,},
-//         // Remove Circles
-//         {0x08880808, 0x1000001A,},
-
-//         // Ad-Hoc port
-//         {0x08814ecc, 0x3405030a,},
-//         {0x08814b90, 0x3406030a,},
-//         {0x08814ccc, 0x3416030a,},
-//         // Ad-Hoc matching port
-//         {0x088117e8, 0x34060002,},
-//         {0x088116f4, 0x34060002,},
-
-//         {},  // end
-//     },
-// };
-
-//#define patches ((Patch*)USER_ADDR(&_patches))
 
 void init_addr() {
     if (REF_BYTE(REGION_ADDR) == 0x0) { // JPN
@@ -224,61 +176,6 @@ void init_addr() {
         LOAD_TAG_MODE_HOOK_ADDR = 0x089fadc8;
     }
 }
-
-// void init_patches() {
-//     if (REF_BYTE(REGION_ADDR) == 0x0) {
-//         // JPN
-//         _patches = {
-//             .function_hook_patches = {}, // 空的 function_hook_patches
-//             .instruction_patches = {
-//                 // Remove enemies
-//                 {0x08901238, 0x1000006B},
-//                 // 2P Health Bar
-//                 {0x08888A7C, 0x00000000},
-//                 {0x0888D3AC, 0x00000000},
-//                 {0x0888D544, 0x00000000},
-//                 // Better Ending
-//                 {0x08938E00, 0x00000000},
-//                 // No more cache!
-//                 {0x08939054, 0x00000000},
-//                 {0x08938E10, 0x34040034},
-//                 // No reviving
-//                 {0x08938e78, 0x34040008},
-//                 // Skip Opening
-//                 {0x088FD920, 0x00000000},
-//                 {0x089019f4, 0x10000004},
-//                 {0x08901A1C, 0x34020000},
-//                 {0x08939a4c, 0x00000000},
-//                 // Remove Circles
-//                 {0x08880808, 0x1000001A},
-//                 // Ad-Hoc port
-//                 {0x08814ecc, 0x3405030a},
-//                 {0x08814b90, 0x3406030a},
-//                 {0x08814ccc, 0x3416030a},
-//                 // Ad-Hoc matching port
-//                 {0x088117e8, 0x34060002},
-//                 {0x088116f4, 0x34060002},
-//                 {}, // end
-//             },
-//         };
-//     } else {
-//         // USA
-//         _patches = {
-//             .function_hook_patches = {}, // 空的 function_hook_patches
-//             .instruction_patches = {
-//                 // Remove enemies (不同值)
-//                 {0x08901B68,0x1000006B},
-//                 // 2P Health Bar (不同值)
-//                 {0x088893AC, 0x00000000},
-//                 {0x0888DCDC, 0x00000000},
-//                 {0x0888DE74, 0x00000000},
-//                 // Better Ending (不同值)
-//                 {0x08939730, 0x00000000},
-//                 {}, // end
-//             },
-//         };
-//     }
-// }
 
 void player_info_hook() {
     int a = REF(PLAYER_BASE_ADDR);
