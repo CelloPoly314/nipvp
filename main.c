@@ -1,354 +1,503 @@
 #include <pspsdk.h>
 #include <pspkernel.h>
-
-#include <stdio.h>
-#include <string.h>
 #include <pspctrl.h>
 #include <systemctrl.h>
-#include "pspmem.h"
-
-
-#define TARGET_MODULE "Model"
+#include <string.h>
 #define MODULE_NAME "nipvp"
-
 PSP_MODULE_INFO(MODULE_NAME, 0x1007, 1, 0);
 
+#define EMULATOR_DEVCTL__IS_EMULATOR 0x03
+
+#define REF(x) *((int*)(x))
+#define REF_BYTE(x) *((char*)(x))
+#define REF_HALF_WORD(x) *((short*)(x))
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define J(addr) (0x8000000 | ((int)(addr) >> 2))
+
+#define INIT_USER_MODULE_ADDR() int user_text_addr; get_from_reg(user_text_addr, at);
+#define USER_ADDR(addr) ({INIT_USER_MODULE_ADDR(); (int)addr - (int)&__executable_start + (int)user_text_addr;})
+#define J_USER(target) J(({INIT_USER_MODULE_ADDR(); ((int (*)(int, int, int))USER_ADDR(&make_trampoline))(1, user_text_addr, USER_ADDR(target));}))
+#define USER_ALIAS_OF(name) (*((typeof(name)*)USER_ADDR(&name)))
+
+#define REGION_ADDR 0x08901b6b
+
+//#define GAME_MODE_ADDR 0x8c05800
+// #define PLAYER_BASE_ADDR 0x8bD898C
+// #define MISSION_CODE_ADDR 0x8c05884
+// #define PLAYER_INIT_HOOK_ADDR 0x0895bb28
+// #define PLAYER_1_SET_POS_HOOK_ADDR 0x08901470
+// #define PLAYER_2_SET_POS_HOOK_ADDR 0x088FFA30
+// #define LOAD_COORDINATE_HOOK_ADDR 0x08930a34
+// #define SET_GAME_MODE_HOOK_ADDR 0x0883e770
+// #define LOAD_TAG_MODE_HOOK_ADDR 0x089fa448
+uintptr_t GAME_MODE_ADDR;
+uintptr_t PLAYER_BASE_ADDR;
+uintptr_t MISSION_CODE_ADDR;
+uintptr_t PLAYER_INIT_HOOK_ADDR;
+uintptr_t PLAYER_1_SET_POS_HOOK_ADDR;
+uintptr_t PLAYER_2_SET_POS_HOOK_ADDR;
+uintptr_t LOAD_COORDINATE_HOOK_ADDR;
+uintptr_t SET_GAME_MODE_HOOK_ADDR;
+uintptr_t LOAD_TAG_MODE_HOOK_ADDR;
+
+#define IS_TAG_MODE (REF_BYTE(GAME_MODE_ADDR) == 0x02)
+
+extern char __executable_start;
+extern char end;
+
+
+typedef struct {
+    int addr;
+    int inst;
+    int ori_inst;
+} Patch;
+
+#define FUNC_HOOK_NUM 4
+
+#define MAX_INST_PATCHES 22
+#define MAX_PATCHES      (FUNC_HOOK_NUM + MAX_INST_PATCHES + 1)
+
+static Patch instruction_patch_set1[] = {
+    // Remove enemies
+    {0x08901238, 0x1000006B},
+    // 2P Health Bar
+    {0x08888A7C, 0x00000000},
+    {0x0888D3AC, 0x00000000},
+    {0x0888D544, 0x00000000},
+    // Better Ending
+    {0x08938E00, 0x00000000},
+    // No more cache!
+    {0x08939054, 0x00000000},
+    {0x08938E10, 0x34040034},
+    // No reviving
+    {0x08938e78, 0x34040008},
+    // Skip Opening
+    {0x088FD920, 0x00000000},
+    {0x089019f4, 0x10000004},
+    {0x08901A1C, 0x34020000},
+    {0x08939a4c, 0x00000000},
+    // Remove Circles
+    {0x08880808, 0x1000001A},
+    // Ad-Hoc port
+    {0x08814ecc, 0x3405030a},
+    {0x08814b90, 0x3406030a},
+    {0x08814ccc, 0x3416030a},
+    // Ad-Hoc matching port
+    {0x088117e8, 0x34060002},
+    {0x088116f4, 0x34060002},
+    // 1P Balance
+    {0x08892864, 0x34050180},
+    {0x08892860, 0x34040080},
+    // 2P Balance
+    {0x08892A04, 0x34050180},
+    {0x08892A00, 0x34040080},
+    {}, // end
+};
+
+static Patch instruction_patch_set2[] = {
+    // Remove enemies
+    {0x08901B68,0x1000006B},
+    // 2P Health Bar
+    {0x088893AC, 0x00000000},
+    {0x0888DCDC, 0x00000000},
+    {0x0888DE74, 0x00000000},
+    // Better Ending
+    {0x08939730, 0x00000000},
+    // No more cache!
+    {0x08939984, 0x00000000},
+    {0x08939740, 0x34040034},
+    // No reviving
+    {0x089397a8, 0x34040008},
+    // Skip Opening
+    {0x088FE250, 0x00000000},
+    {0x08902324, 0x10000004},
+    {0x0890234C, 0x34020000},
+    {0x0893a37c, 0x00000000},
+    // Remove Circles
+    {0x08881138, 0x1000001A},
+    // Ad-Hoc port
+    {0x08814ef0, 0x3405030a},
+    {0x08814bb4, 0x3406030a},
+    {0x08814cf0, 0x3416030a},
+    // Ad-Hoc matching port
+    {0x0881180c, 0x34060002},
+    {0x08811718, 0x34060002},
+    // 1P Balance
+    {0x08893194, 0x34050180},
+    {0x08893190, 0x34040080},
+    // 2P Balance
+    {0x08893334, 0x34050180},
+    {0x08893330, 0x34040080},
+    {}, // end
+};
+
+// ② 全局 buffer，保存 hook + instruction patches
+static Patch patches_buf[MAX_PATCHES];
+//    [0..FUNC_HOOK_NUM-1] = hook slots (by _start 动态写入)
+//    [FUNC_HOOK_NUM..]   = instruction slots (lazy init)
+
+// ③ 懒初始化获取 patches 数组
+static int patches_inited = 0;
+static Patch *patches_get(void) {
+    if (!patches_inited) {
+        patches_inited = 1;
+        // 只填 instruction 部分
+        Patch *dst = patches_buf + FUNC_HOOK_NUM;
+        Patch *src = (REF_BYTE(REGION_ADDR) == 0x0)
+                    ? instruction_patch_set1
+                    : instruction_patch_set2;
+        // 可选 memset(dst, 0, sizeof(Patch)*MAX_INST_PATCHES);
+        for (int i = 0; i < MAX_INST_PATCHES && src[i].addr != 0; i++) {
+            dst[i] = src[i];
+        }
+        // 多余位置自动保持 {0,0,0}
+    }
+    return patches_buf;
+}
+
+// ④ 将原来的宏指向懒加载函数
+#undef patches
+#define patches (patches_get())
+
+// struct {
+//     Patch function_hook_patches[FUNC_HOOK_NUM], instruction_patches[];
+// } _patches = {
+//     .function_hook_patches = {},
+//     .instruction_patches = {
+//         // Remove enemies
+//         {0x08901238, 0x1000006B,},
+
+//         // 2P Health Bar
+//         {0x08888A7C, 0x00000000,},
+//         {0x0888D3AC, 0x00000000,},
+//         {0x0888D544, 0x00000000,},
+//         // Better Ending
+//         {0x08938E00, 0x00000000,},
+//         // No more cache!
+//         {0x08939054, 0x00000000,},
+
+//         {0x08938E10, 0x34040034,},
+//         // No reviving
+//         {0x08938e78, 0x34040008,},
+//         // Skip Opening
+//         {0x088FD920, 0x00000000,},
+//         {0x089019f4, 0x10000004,},
+//         {0x08901A1C, 0x34020000,},
+//         {0x08939a4c, 0x00000000,},
+//         // Remove Circles
+//         {0x08880808, 0x1000001A,},
+
+//         // Ad-Hoc port
+//         {0x08814ecc, 0x3405030a,},
+//         {0x08814b90, 0x3406030a,},
+//         {0x08814ccc, 0x3416030a,},
+//         // Ad-Hoc matching port
+//         {0x088117e8, 0x34060002,},
+//         {0x088116f4, 0x34060002,},
+
+//         {},  // end
+//     },
+// };
+
+//#define patches ((Patch*)USER_ADDR(&_patches))
+
+void init_addr() {
+    if (REF_BYTE(REGION_ADDR) == 0x0) { // JPN
+        GAME_MODE_ADDR = 0x8c05800;
+        PLAYER_BASE_ADDR = 0x8bD898C;
+        MISSION_CODE_ADDR = 0x8c05884;
+        PLAYER_INIT_HOOK_ADDR = 0x0895bb28;
+        PLAYER_1_SET_POS_HOOK_ADDR = 0x08901470;
+        PLAYER_2_SET_POS_HOOK_ADDR = 0x088FFA30;
+        LOAD_COORDINATE_HOOK_ADDR = 0x08930a34;
+        SET_GAME_MODE_HOOK_ADDR = 0x0883e770;
+        LOAD_TAG_MODE_HOOK_ADDR = 0x089fa448;
+    } else {
+        GAME_MODE_ADDR = 0x8c069c0; // USA
+        PLAYER_BASE_ADDR = 0x8bD9B54;
+        MISSION_CODE_ADDR = 0x8c06A44;
+        PLAYER_INIT_HOOK_ADDR = 0x0895c458;
+        PLAYER_1_SET_POS_HOOK_ADDR = 0x08901DA0;
+        PLAYER_2_SET_POS_HOOK_ADDR = 0x08900360;
+        LOAD_COORDINATE_HOOK_ADDR = 0x08931364;
+        SET_GAME_MODE_HOOK_ADDR = 0x0883f0a0;
+        LOAD_TAG_MODE_HOOK_ADDR = 0x089fadc8;
+    }
+}
+
+// void init_patches() {
+//     if (REF_BYTE(REGION_ADDR) == 0x0) {
+//         // JPN
+//         _patches = {
+//             .function_hook_patches = {}, // 空的 function_hook_patches
+//             .instruction_patches = {
+//                 // Remove enemies
+//                 {0x08901238, 0x1000006B},
+//                 // 2P Health Bar
+//                 {0x08888A7C, 0x00000000},
+//                 {0x0888D3AC, 0x00000000},
+//                 {0x0888D544, 0x00000000},
+//                 // Better Ending
+//                 {0x08938E00, 0x00000000},
+//                 // No more cache!
+//                 {0x08939054, 0x00000000},
+//                 {0x08938E10, 0x34040034},
+//                 // No reviving
+//                 {0x08938e78, 0x34040008},
+//                 // Skip Opening
+//                 {0x088FD920, 0x00000000},
+//                 {0x089019f4, 0x10000004},
+//                 {0x08901A1C, 0x34020000},
+//                 {0x08939a4c, 0x00000000},
+//                 // Remove Circles
+//                 {0x08880808, 0x1000001A},
+//                 // Ad-Hoc port
+//                 {0x08814ecc, 0x3405030a},
+//                 {0x08814b90, 0x3406030a},
+//                 {0x08814ccc, 0x3416030a},
+//                 // Ad-Hoc matching port
+//                 {0x088117e8, 0x34060002},
+//                 {0x088116f4, 0x34060002},
+//                 {}, // end
+//             },
+//         };
+//     } else {
+//         // USA
+//         _patches = {
+//             .function_hook_patches = {}, // 空的 function_hook_patches
+//             .instruction_patches = {
+//                 // Remove enemies (不同值)
+//                 {0x08901B68,0x1000006B},
+//                 // 2P Health Bar (不同值)
+//                 {0x088893AC, 0x00000000},
+//                 {0x0888DCDC, 0x00000000},
+//                 {0x0888DE74, 0x00000000},
+//                 // Better Ending (不同值)
+//                 {0x08939730, 0x00000000},
+//                 {}, // end
+//             },
+//         };
+//     }
+// }
+
+void player_info_hook() {
+    int a = REF(PLAYER_BASE_ADDR);
+    a = REF(a + 4);
+    int b = REF(a);
+    int c = REF(b);
+    a = REF(c + 0x90);
+    a = REF(a);
+
+    // PVP
+    REF_BYTE(c + 0xa4) = 2;
+    REF_BYTE(a + 0x8) = 2;
+    REF_BYTE(a + 0x538) = 2;
+}
+
+typedef struct {
+    int idx;
+    float x;
+    float z;
+    float y;
+    float unknown1;
+    int orientation;
+} Coordinate;
+
+#define get_from_reg(var, reg) asm( \
+        ".set noat\n" \
+        "move %0,$"#reg \
+        : "=r" (var) \
+);
+
+#define save_to_reg(reg, var) asm( \
+        "move $"#reg",%0" \
+        : \
+        : "r" (var) \
+);
+
+#define save_to_stack(reg) asm( \
+        "addiu $sp,$sp,-4\n" \
+        "sw $"#reg",0x0($sp)" \
+);
+
+#define restore_from_stack(reg) asm( \
+        "lw $"#reg",0x0($sp)\n" \
+        "addiu $sp,$sp,4" \
+);
+
+#define return_to(addr) asm( \
+        "move $ra,%0\n" \
+        : \
+        : "r" (addr) \
+        : "v0" \
+);
+
+int _p1_pos_idx;
+int _p2_pos_idx;
+#define p1_pos_idx USER_ALIAS_OF(_p1_pos_idx)
+#define p2_pos_idx USER_ALIAS_OF(_p2_pos_idx)
+
+void set_p1_pos_hook() {
+    save_to_stack(a0);
+    save_to_stack(a2);
+    asm(
+        "lhu %0,0x8($s6)\n"
+        : "=r" (p1_pos_idx)
+    );
+    p2_pos_idx = p1_pos_idx + 1;
+    int mission = REF(MISSION_CODE_ADDR);
+    if (mission == 0x9d || mission == 0x9e || mission == 0xa8) {
+        p2_pos_idx = p1_pos_idx - 1;
+    }
+    save_to_reg(a1, p1_pos_idx);
+    restore_from_stack(a2);
+    restore_from_stack(a0);
+    return_to(PLAYER_1_SET_POS_HOOK_ADDR + 8);
+}
+
+void set_p2_pos_hook() {
+    save_to_stack(a0);
+    save_to_reg(a1, p2_pos_idx);
+    restore_from_stack(a0);
+    return_to(PLAYER_2_SET_POS_HOOK_ADDR + 8);
+}
+
+static float _offset = 100.;
+#define offset USER_ALIAS_OF(_offset)
+
+void load_coordinate_hook() {
+    save_to_stack(a0);
+    Coordinate *coordinate_list = 0;
+    get_from_reg(coordinate_list, v0);
+    if (!coordinate_list || coordinate_list[0].idx != p1_pos_idx) {  // not a coordinate list
+        goto exit;
+    }
+
+    Coordinate *p1_coordinate = coordinate_list;
+    Coordinate *p2_coordinate = coordinate_list - p1_pos_idx + p2_pos_idx;
+
+    int orientation = p1_coordinate->orientation * 180 / 2048;
+    if (orientation < 0) {
+        orientation += 360;
+    }
+    if (orientation < 45) {
+        p2_coordinate->x = p1_coordinate->x;
+        p2_coordinate->y = p1_coordinate->y + offset;
+    } else if (orientation < 135) {
+        p2_coordinate->x = p1_coordinate->x + offset;
+        p2_coordinate->y = p1_coordinate->y;
+    } else if (orientation < 225) {
+        p2_coordinate->x = p1_coordinate->x;
+        p2_coordinate->y = p1_coordinate->y - offset;
+    } else if (orientation < 315) {
+        p2_coordinate->x = p1_coordinate->x - offset;
+        p2_coordinate->y = p1_coordinate->y;
+    }
+    p2_coordinate->orientation = p1_coordinate->orientation + 2048;
+
+    exit:
+    restore_from_stack(a0);
+    asm("lui $a1,0x3f80");  // original instruction
+    return_to(LOAD_COORDINATE_HOOK_ADDR + 8);
+}
+
+int _trampolines [FUNC_HOOK_NUM * 3] = {};
+int _trampolines_used_count = 0;
+#define trampolines USER_ALIAS_OF(_trampolines)
+#define trampolines_used_count USER_ALIAS_OF(_trampolines_used_count)
+
+int make_trampoline(int user_mode, int user_text_addr, int target) {
+    int tramp_addr;
+    if (user_mode) {
+        tramp_addr = (int)(trampolines + trampolines_used_count++ * 3);
+    } else {
+        SceUID block_id = sceKernelAllocPartitionMemory(PSP_MEMORY_PARTITION_USER, "", PSP_SMEM_High, 12, NULL);
+        tramp_addr = (int)sceKernelGetBlockHeadAddr(block_id);
+    }
+    REF(tramp_addr) = 0x3c010000 | (user_text_addr >> 16); // lui at,addr_h
+    REF(tramp_addr + 4) = J(target);
+    REF(tramp_addr + 8) = 0x34210000 | (user_text_addr & 0x0000ffff); // ori at,at,addr_l
+    return tramp_addr;
+}
+
+
+inline static void patch_instruction(int addr, int inst) {
+    REF(addr) = inst;
+    asm(
+        "cache 0x1a,0x0(%0)\n"
+        "cache 8,0x0(%0)"
+        :
+        : "r" (addr)
+    );
+}
+
+static int _is_patched = 0;
+#define is_patched USER_ALIAS_OF(_is_patched)
+
+void _start(int ignore_mode) {
+    if (!is_patched && (IS_TAG_MODE || ignore_mode)) {
+        is_patched = 1;
+        int hook_i = 0;
+        patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR, J_USER(&player_info_hook)};
+        patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR, J_USER(&load_coordinate_hook)};
+        patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR, J_USER(&set_p1_pos_hook)};
+        patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR, J_USER(&set_p2_pos_hook)};
+        for (Patch *patch = patches; patch->addr; patch++) {
+            patch->ori_inst = REF(patch->addr);
+            patch_instruction(patch->addr, patch->inst);
+        }
+    } else if (is_patched && !IS_TAG_MODE && !ignore_mode) {
+        is_patched = 0;
+
+        for (Patch *patch = patches; patch->addr; patch++) {
+            patch_instruction(patch->addr, patch->ori_inst);
+        }
+    }
+}
+
+
+void mode_changed_hook() {
+    ((void (*)(int))(USER_ADDR(_start)))(0);
+}
+
+void tag_mode_entered_hook() {
+    ((void (*)(int))(USER_ADDR(_start)))(1);
+}
+
+void init(int user_text_addr) {
+    init_addr();
+    //init_patches();
+    patch_instruction(SET_GAME_MODE_HOOK_ADDR, J(make_trampoline(0, user_text_addr, (char*)&mode_changed_hook - &__executable_start + user_text_addr)));
+    patch_instruction(LOAD_TAG_MODE_HOOK_ADDR, J(make_trampoline(0, user_text_addr, (char*)&tag_mode_entered_hook - &__executable_start + user_text_addr)));
+}
+
+void load_module_to_user_space() {
+    int elf_size = &end - &__executable_start;
+    SceUID block_id = sceKernelAllocPartitionMemory(PSP_MEMORY_PARTITION_USER, "", PSP_SMEM_High, elf_size, NULL);
+    int user_text_addr = (u32)sceKernelGetBlockHeadAddr(block_id);
+    memcpy((void*)user_text_addr, &__executable_start, elf_size);
+    init(user_text_addr);
+}
+
 static STMOD_HANDLER previous;
-SceUID thid;
-u32 mod_text_addr;
-
-u32 RegionAddr = 0x0;
-u32 Spawnpoint = 0x0;
-u32 MapCode = 0x0;
-u32 MissonCode = 0x0;
-
-int GetGameVersion()
-{
-	if (ReadChar(0x101B6B) == 0)
-		return 0;
-	else if (ReadChar(0x101B6B) != 0)
-		return 1;
-	else
-		return -1;
-}
-
-int ptrx(u32 addr, u8 d)
-{
-	u32 ptr = 0x08800000;
-	u32 read_int = ReadInt(addr);
-	if (read_int >= 0x08800000 && read_int < 0x0A000000) {
-		ptr = read_int;
-		u32 calc_addr = ptr + d - 0x08800000;
-		if (calc_addr >= 0x0 && calc_addr < 0x01800000) {
-			return ReadInt(calc_addr);
-		}
-	}
-	return 0;
-}
-
-int module_thread()
-{
-	while (1)
-	{
-		int game_version = GetGameVersion();
-		if (game_version == -1) {
-			// Handle error in determining game version
-			sceKernelDelayThread(10000);
-			continue;
-		}
-
-		int Coop = 0;
-		u32 coop_addr = (game_version == 0) ? 0x405800 : 0x4069C0;
-		if (ReadChar(coop_addr) == 0x2) {
-			Coop = 1;
-		} else {
-			Coop = 0;
-		}
-
-		if (Coop == 1) {
-
-			
-			if (game_version == 0){ //NPJH50435
-
-				//Balance
-				PatchInt(0x95914,0x34040150);
-				PatchInt(0x9592C,0x34040080);
-				//Remove enemies
-				PatchInt(0x101238,0x1000006B);
-				//2P Health Bar
-				Nop(0x88A7C);
-				Nop(0x8D3AC);
-				Nop(0x8D544);
-				//Better Ending
-				Nop(0x138E00);
-
-				Nop(0x139054);// no more cache!
-
-				PatchInt(0x138E10,0x34040034);
-
-				PatchInt(0x139050,0x3404000C);
-				// if (ReadShort(0x4059CC) == 0x100) {
-				// 	PatchChar(0x4059CC,0x1);
-				// }
-				
-				//Skip Opening
-				Nop(0xFD920);
-				PatchInt(0x1019f4,0x10000004);
-				PatchInt(0x101A1C,0x34020000);
-
-			}
-			else if (game_version == 1){ //ULUS10582
-
-				//Balance
-				PatchInt(0x96244,0x34040150);
-				PatchInt(0x9625C,0x34040080);
-				//Remove enemies
-				PatchInt(0x101B68,0x1000006B);
-				//2P Health Bar
-				Nop(0x893AC);
-				Nop(0x8DCDC);
-				Nop(0x8DE74);
-				//Better Ending
-				Nop(0x139730);
-
-				Nop(0x139984);// no more cache!
-				
-				PatchInt(0x139740,0x34040034);
-
-				PatchInt(0x139980,0x3404000C);
-				// if (ReadShort(0x406B8C) == 0x100) {
-				// 	PatchChar(0x406B8C,0x1);
-				// }
-
-				//Skip Opening
-				Nop(0xFE250);
-				PatchInt(0x102324,0x10000004);
-				PatchInt(0x10234C,0x34020000);
-
-			}
-			
-			//Fix spawnpoint one by one...	
-			switch (ReadShort(MissonCode)){
-
-				case 0xA6: case 0x9C: 
-				PatchInt(Spawnpoint,0x34050001);
-				break;
-
-				case 0xA3:
-				PatchInt(Spawnpoint,0x34050001);
-				//PatchInt(MissonCode + 0x4,0x96);
-				//PatchInt(MapCode,0x3404002D);
-				break;
-				
-				case 0xAA:
-				PatchInt(Spawnpoint,0x3405000A);
-				break;
-
-				case 0xA2: case 0x96:
-				PatchInt(Spawnpoint,0x34050003);
-				break;
-
-				case 0xA5:
-				PatchInt(Spawnpoint,0x34050004);
-				break;
-
-				case 0x98:
-				PatchInt(Spawnpoint,0x34050011);
-				break;
-
-				default:
-				PatchInt(Spawnpoint,0x95250006);
-				//PatchInt(MapCode,0x96240004);
-				// PatchInt(MissonCode + 0x4,ReadShort(MissonCode));
-
-				//imperfect : case 0x95: case 0x99: case 0x9D: case 0x9B: case 0xA0: case 0x9F: case 0xA1: case 0xAD: case 0xA4: case 0x97: case 0xAC: 
-
-			}
-
-
-			if (0x0A000000 > ReadInt(RegionAddr) && ReadInt(RegionAddr) >= 0x08800000){
-
-
-				//1P
-				PatchInt(0x2000,ReadInt(RegionAddr));
-				PatchInt(0x2004,ptrx(0x2000,0x4));
-				PatchInt(0x2008,ptrx(0x2004,0x0));
-				PatchInt(0x200C,ptrx(0x2008,0x0));
-				PatchInt(0x2010,ptrx(0x200C,0x90));
-				PatchInt(0x2014,ptrx(0x2010,0x0));
-
-				//2P
-				PatchInt(0x2020,ReadInt(0x2008));
-				PatchInt(0x2024,ptrx(0x2020,0x4));
-				PatchInt(0x2028,ptrx(0x2024,0x90));
-				PatchInt(0x202C,ptrx(0x2028,0x0));
-
-
-				//if (ReadInt(0x200C) > 0x08800000 && ReadInt(0x2014) > 0x08800000){
-				if (0x0A000000 > ReadInt(0x2014)  && ReadInt(0x2014) > 0x08800000){
-
-					//PVP
-					u32 r200c = ReadInt(0x200C) - 0x08800000;
-					u32 r2014 = ReadInt(0x2014) - 0x08800000;
-					PatchChar(r200c + 0xA4,0x2);
-					PatchChar(r2014 + 0x8,0x2);
-					PatchChar(r2014 + 0x538,0x2);
-
-					//Balance
-					PatchShort(r2014 + 0x7D0,0x150);
-					PatchShort(r2014 + 0x7E0,0x80);
-				}
-				if (0x0A000000 > ReadInt(0x202C) && ReadInt(0x202C) > 0x08800000){
-					u32 r202c = ReadInt(0x202C) - 0x08800000;
-					//Balance
-					PatchShort(r202c + 0x7D0,0x150);
-					PatchShort(r202c + 0x7E0,0x80);
-				}
-
-
-
-			}
-			if (0x0A000000 < ReadInt(RegionAddr) || ReadInt(RegionAddr) < 0x08800000){
-				//sceKernelDelayThread(1000000);
-				for (u32 i = 0x202C; i >= 0x2000; i -= 0x4){
-					Nop(i);
-				}
-			}
-
-		}
-		else if (Coop == 0) {
-			if (game_version == 0) {
-
-				PatchInt(0x95914,0x8E24001C);
-				PatchInt(0x9592C,0x8E24002C);
-
-				PatchInt(0x101238,0x5040006B);
-
-				PatchInt(0x88A7C,0x10A0004E);
-				PatchInt(0x8D3AC,0x9204005D);
-				PatchInt(0x8D544,0x10800059);
-
-				PatchInt(0x138E00,0x02608025);
-				PatchInt(0x139054,0x0E206928);
-
-				PatchInt(0x138E10,0x3404000D);
-				PatchInt(0x139050,0x3404000D);
-
-				PatchInt(0xFD920,0x0E21D3E1);
-				PatchInt(0x1019f4,0x12200004);
-				PatchInt(0x101A1C,0x34020001);
-
-			}
-			else if (game_version == 1) {
-
-				PatchInt(0x96244,0x8E24001C);
-				PatchInt(0x9625C,0x8E24002C);
-
-				PatchInt(0x101B68,0x5040006B);
-
-				PatchInt(0x893AC,0x10A0004E);
-				PatchInt(0x8DCDC,0x9204005D);
-				PatchInt(0x8DE74,0x10800059);
-
-				PatchInt(0x139730,0x02608025);
-				PatchInt(0x139984,0x0E2069B6);
-
-				PatchInt(0x139740,0x3404000D);
-				PatchInt(0x139980,0x3404000D);
-				
-				PatchInt(0xFE250,0x0E21D62D);
-				PatchInt(0x102324,0x12200004);
-				PatchInt(0x10234C,0x34020001);
-			}
-		}
-
-
-		sceKernelDelayThread(500000);
-		sceKernelDcacheWritebackAll();
-		sceKernelIcacheClearAll();
-
-	}
-	sceKernelExitDeleteThread(0);
-	return 0;
-}
-
-int Init(unsigned int addr)
-{
-	
-	PSPPatcher_Init(addr);
-
-	//NPJH50435
-	if (GetGameVersion() == 0){
-		
-		RegionAddr = 0x3D898C;
-		Spawnpoint = 0xFFA30;
-		MissonCode = 0x405884;
-		MapCode = 0xFC00C;
-
-		//Remove Circles
-		PatchInt(0x80808,0x1000001A);
-	}
-	//ULUS10582
-	if (GetGameVersion() == 1){
-
-		RegionAddr = 0x3D9B54;
-		Spawnpoint = 0x100360;
-		MissonCode = 0x406A44;
-		MapCode = 0xFC93C;
-
-		//Remove Circles
-		PatchInt(0x81138,0x1000001A);
-
-	}
-
-
-	sceKernelStartThread(thid, 0, 0);
-
-	return 0;
-}
-
 int OnModuleStart(SceModule2 *mod) {
-	char *modname = mod->modname;
-
-	if (strcmp(modname, "Model") == 0) {
-		mod_text_addr = mod->text_addr;
-
-		Init(0x08800000);
-
-		sceKernelDcacheWritebackAll();
+	if (strcmp(mod->modname, "Model") == 0) {
+	    load_module_to_user_space();
 	}
 	if (!previous)
 		return 0;
-
 	return previous(mod);
 }
 
-int module_start(SceSize args, void *argp)
-{	
- 	sceKernelDelayThread(1000000);
-	thid = sceKernelCreateThread("nipvp", module_thread, 0x18, 2048, 0, NULL);
-	if (sceIoDevctl("kemulator:", 0x00000003, NULL, 0, NULL, 0) == 0) {
-		SceUID modules[10];
-		int count = 0;
-		if (sceKernelGetModuleIdList(modules, sizeof(modules), &count) >= 0) {
-			int i;
-			SceKernelModuleInfo info;
-			for (i = 0; i < count; ++i) {
-				info.size = sizeof(SceKernelModuleInfo);
-				if (sceKernelQueryModuleInfo(modules[i], &info) < 0) {
-					continue;
-				}
+int module_start(SceSize args, void* argp) {
+    int is_emulator = 0;
+    sceIoDevctl("kemulator:", EMULATOR_DEVCTL__IS_EMULATOR, NULL, 0, &is_emulator, 4);
 
-				if (strcmp(info.name, TARGET_MODULE) == 0)
-					Init(0x08800000);
-			}
-		}
-	}
-	else {
-		previous = sctrlHENSetStartModuleHandler(OnModuleStart); // PSP
-	}
-	return 0;
+    if (is_emulator) {
+        load_module_to_user_space();
+    } else {
+        previous = sctrlHENSetStartModuleHandler(OnModuleStart);
+    }
+
+    return 0;
 }
-
-
-

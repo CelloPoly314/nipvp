@@ -4,7 +4,7 @@ A plugin that turns the Co-op mode into a PvP mode for Naruto Shippuden: Ultimat
 - PvP mode.
 - Removes all other enimies.
 - Balanced HP and Chakra.
-- Replaces spawnpoints in certain maps.
+- Replaces spawnpoints in all maps.
 - Works on both JP and USA version (`NPJH50435`/`ULUS10582`).
 - Works on PSP, Vita and PPSSPP.
 ## Installation
@@ -25,3 +25,4 @@ A plugin that turns the Co-op mode into a PvP mode for Naruto Shippuden: Ultimat
 - Awakening is not implemented because it would break the balance even more.
 ## Special Thanks
 - ermaccer for his plugin template that make it possible for me to turn my cheat codes into an actual plugin.
+- 南德小學生 for basically rewriting the entire plugin.
