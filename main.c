@@ -21,30 +21,48 @@ PSP_MODULE_INFO(MODULE_NAME, 0x1007, 1, 0);
 
 #define REGION_ADDR 0x08901b6b
 
-//#define GAME_MODE_ADDR 0x8c05800
-// #define PLAYER_BASE_ADDR 0x8bD898C
-// #define MISSION_CODE_ADDR 0x8c05884
-// #define PLAYER_INIT_HOOK_ADDR 0x0895bb28
-// #define PLAYER_1_SET_POS_HOOK_ADDR 0x08901470
-// #define PLAYER_2_SET_POS_HOOK_ADDR 0x088FFA30
-// #define LOAD_COORDINATE_HOOK_ADDR 0x08930a34
-// #define SET_GAME_MODE_HOOK_ADDR 0x0883e770
-// #define LOAD_TAG_MODE_HOOK_ADDR 0x089fa448
-uintptr_t GAME_MODE_ADDR;
-uintptr_t PLAYER_BASE_ADDR;
-uintptr_t MISSION_CODE_ADDR;
-uintptr_t PLAYER_INIT_HOOK_ADDR;
-uintptr_t PLAYER_1_SET_POS_HOOK_ADDR;
-uintptr_t PLAYER_2_SET_POS_HOOK_ADDR;
-uintptr_t LOAD_COORDINATE_HOOK_ADDR;
-uintptr_t SET_GAME_MODE_HOOK_ADDR;
-uintptr_t LOAD_TAG_MODE_HOOK_ADDR;
+#define GAME_MODE_ADDR_JPN 0x8c05800
+#define GAME_MODE_ADDR_USA 0x8c069c0
 
-#define IS_TAG_MODE (REF_BYTE(GAME_MODE_ADDR) == 0x02)
+#define PLAYER_BASE_ADDR_JPN 0x8bD898C
+#define PLAYER_BASE_ADDR_USA 0x8bD9B54
+
+#define MISSION_CODE_ADDR_JPN 0x8c05884
+#define MISSION_CODE_ADDR_USA 0x8c06A44
+
+#define PLAYER_INIT_HOOK_ADDR_JPN 0x0895bb28
+#define PLAYER_INIT_HOOK_ADDR_USA 0x0895c458
+
+#define PLAYER_1_SET_POS_HOOK_ADDR_JPN 0x08901470
+#define PLAYER_1_SET_POS_HOOK_ADDR_USA 0x08901DA0
+
+#define PLAYER_2_SET_POS_HOOK_ADDR_JPN 0x088FFA30
+#define PLAYER_2_SET_POS_HOOK_ADDR_USA 0x08900360
+
+#define LOAD_COORDINATE_HOOK_ADDR_JPN 0x08930a34
+#define LOAD_COORDINATE_HOOK_ADDR_USA 0x08931364
+
+#define SET_GAME_MODE_HOOK_ADDR_JPN 0x0883e770
+#define SET_GAME_MODE_HOOK_ADDR_USA 0x0883f0a0
+
+#define LOAD_TAG_MODE_HOOK_ADDR_JPN 0x089fa448
+#define LOAD_TAG_MODE_HOOK_ADDR_USA 0x089fadc8
+
+// #define GAME_MODE_ADDR       (REF_BYTE(REGION_ADDR) == 0x0 ? GAME_MODE_ADDR_JPN       : GAME_MODE_ADDR_USA)
+// #define PLAYER_BASE_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_BASE_ADDR_JPN     : PLAYER_BASE_ADDR_USA)
+// #define MISSION_CODE_ADDR    (REF_BYTE(REGION_ADDR) == 0x0 ? MISSION_CODE_ADDR_JPN    : MISSION_CODE_ADDR_USA)
+// #define PLAYER_INIT_HOOK_ADDR       (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_INIT_HOOK_ADDR_JPN       : PLAYER_INIT_HOOK_ADDR_USA)
+// #define PLAYER_1_SET_POS_HOOK_ADDR  (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_1_SET_POS_HOOK_ADDR_JPN  : PLAYER_1_SET_POS_HOOK_ADDR_USA)
+// #define PLAYER_2_SET_POS_HOOK_ADDR  (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_2_SET_POS_HOOK_ADDR_JPN  : PLAYER_2_SET_POS_HOOK_ADDR_USA)
+// #define LOAD_COORDINATE_HOOK_ADDR   (REF_BYTE(REGION_ADDR) == 0x0 ? LOAD_COORDINATE_HOOK_ADDR_JPN   : LOAD_COORDINATE_HOOK_ADDR_USA)
+#define SET_GAME_MODE_HOOK_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? SET_GAME_MODE_HOOK_ADDR_JPN     : SET_GAME_MODE_HOOK_ADDR_USA)
+#define LOAD_TAG_MODE_HOOK_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? LOAD_TAG_MODE_HOOK_ADDR_JPN     : LOAD_TAG_MODE_HOOK_ADDR_USA)
+
+//#define IS_TAG_MODE (REF_BYTE(GAME_MODE_ADDR) == 0x02)
+static int IS_TAG_MODE = 0;
 
 extern char __executable_start;
 extern char end;
-
 
 typedef struct {
     int addr;
@@ -131,54 +149,40 @@ static Patch instruction_patch_set2[] = {
     {}, // end
 };
 
-static Patch patches_buf[MAX_PATCHES];
+static struct {
+    Patch function_hook_patches[FUNC_HOOK_NUM];
+    Patch instruction_patches[MAX_INST_PATCHES + 1];
+} _patches;
 
-static int patches_inited = 0;
-static Patch *patches_get(void) {
-    if (!patches_inited) {
-        patches_inited = 1;
-        Patch *dst = patches_buf + FUNC_HOOK_NUM;
-        Patch *src = (REF_BYTE(REGION_ADDR) == 0x0)
-                    ? instruction_patch_set1
-                    : instruction_patch_set2;
-        for (int i = 0; i < MAX_INST_PATCHES && src[i].addr != 0; i++) {
-            dst[i] = src[i];
-        }
+void init_patch_buffer(void) {
+    static int inited = 0;
+    if (inited) return;
+    inited = 1;
+    Patch *src = (REF_BYTE(REGION_ADDR)==0
+                  ? instruction_patch_set1
+                  : instruction_patch_set2);
 
+    Patch *dst = _patches.instruction_patches;
+    int i;
+    for (i = 0; i < MAX_INST_PATCHES && src[i].addr; i++) {
+        dst[i].addr     = src[i].addr;
+        dst[i].inst     = src[i].inst;
+        dst[i].ori_inst = 0;
     }
-    return patches_buf;
+    // sentinel
+    dst[i].addr     = 0;
+    dst[i].inst     = 0;
+    dst[i].ori_inst = 0;
 }
 
-#undef patches
-#define patches (patches_get())
-
-
-void init_addr() {
-    if (REF_BYTE(REGION_ADDR) == 0x0) { // JPN
-        GAME_MODE_ADDR = 0x8c05800;
-        PLAYER_BASE_ADDR = 0x8bD898C;
-        MISSION_CODE_ADDR = 0x8c05884;
-        PLAYER_INIT_HOOK_ADDR = 0x0895bb28;
-        PLAYER_1_SET_POS_HOOK_ADDR = 0x08901470;
-        PLAYER_2_SET_POS_HOOK_ADDR = 0x088FFA30;
-        LOAD_COORDINATE_HOOK_ADDR = 0x08930a34;
-        SET_GAME_MODE_HOOK_ADDR = 0x0883e770;
-        LOAD_TAG_MODE_HOOK_ADDR = 0x089fa448;
-    } else {
-        GAME_MODE_ADDR = 0x8c069c0; // USA
-        PLAYER_BASE_ADDR = 0x8bD9B54;
-        MISSION_CODE_ADDR = 0x8c06A44;
-        PLAYER_INIT_HOOK_ADDR = 0x0895c458;
-        PLAYER_1_SET_POS_HOOK_ADDR = 0x08901DA0;
-        PLAYER_2_SET_POS_HOOK_ADDR = 0x08900360;
-        LOAD_COORDINATE_HOOK_ADDR = 0x08931364;
-        SET_GAME_MODE_HOOK_ADDR = 0x0883f0a0;
-        LOAD_TAG_MODE_HOOK_ADDR = 0x089fadc8;
-    }
-}
+#define patches ((Patch*)USER_ADDR(&_patches))
 
 void player_info_hook() {
-    int a = REF(PLAYER_BASE_ADDR);
+    int a;
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        a = REF(PLAYER_BASE_ADDR_JPN);
+    else
+        a = REF(PLAYER_BASE_ADDR_USA);
     a = REF(a + 4);
     int b = REF(a);
     int c = REF(b);
@@ -201,32 +205,32 @@ typedef struct {
 } Coordinate;
 
 #define get_from_reg(var, reg) asm( \
-        ".set noat\n" \
-        "move %0,$"#reg \
-        : "=r" (var) \
+    ".set noat\n" \
+    "move %0,$"#reg \
+    : "=r" (var) \
 );
 
 #define save_to_reg(reg, var) asm( \
-        "move $"#reg",%0" \
-        : \
-        : "r" (var) \
+    "move $"#reg",%0" \
+    : \
+    : "r" (var) \
 );
 
 #define save_to_stack(reg) asm( \
-        "addiu $sp,$sp,-4\n" \
-        "sw $"#reg",0x0($sp)" \
+    "addiu $sp,$sp,-4\n" \
+    "sw $"#reg",0x0($sp)" \
 );
 
 #define restore_from_stack(reg) asm( \
-        "lw $"#reg",0x0($sp)\n" \
-        "addiu $sp,$sp,4" \
+    "lw $"#reg",0x0($sp)\n" \
+    "addiu $sp,$sp,4" \
 );
 
 #define return_to(addr) asm( \
-        "move $ra,%0\n" \
-        : \
-        : "r" (addr) \
-        : "v0" \
+    "move $ra,%0\n" \
+    : \
+    : "r" (addr) \
+    : "v0" \
 );
 
 int _p1_pos_idx;
@@ -242,21 +246,33 @@ void set_p1_pos_hook() {
         : "=r" (p1_pos_idx)
     );
     p2_pos_idx = p1_pos_idx + 1;
-    int mission = REF(MISSION_CODE_ADDR);
+    int mission;
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        mission = REF(MISSION_CODE_ADDR_JPN);
+    else
+        mission = REF(MISSION_CODE_ADDR_USA);
     if (mission == 0x9d || mission == 0x9e || mission == 0xa8) {
         p2_pos_idx = p1_pos_idx - 1;
     }
     save_to_reg(a1, p1_pos_idx);
     restore_from_stack(a2);
     restore_from_stack(a0);
-    return_to(PLAYER_1_SET_POS_HOOK_ADDR + 8);
+    //return_to(PLAYER_1_SET_POS_HOOK_ADDR + 8);
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        return_to(PLAYER_1_SET_POS_HOOK_ADDR_JPN + 8)
+    else
+        return_to(PLAYER_1_SET_POS_HOOK_ADDR_USA + 8)
 }
 
 void set_p2_pos_hook() {
     save_to_stack(a0);
     save_to_reg(a1, p2_pos_idx);
     restore_from_stack(a0);
-    return_to(PLAYER_2_SET_POS_HOOK_ADDR + 8);
+    //return_to(PLAYER_2_SET_POS_HOOK_ADDR + 8);
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        return_to(PLAYER_2_SET_POS_HOOK_ADDR_JPN + 8)
+    else
+        return_to(PLAYER_2_SET_POS_HOOK_ADDR_USA + 8)
 }
 
 static float _offset = 100.;
@@ -295,7 +311,11 @@ void load_coordinate_hook() {
     exit:
     restore_from_stack(a0);
     asm("lui $a1,0x3f80");  // original instruction
-    return_to(LOAD_COORDINATE_HOOK_ADDR + 8);
+    //return_to(LOAD_COORDINATE_HOOK_ADDR + 8);
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        return_to(LOAD_COORDINATE_HOOK_ADDR_JPN + 8)
+    else
+        return_to(LOAD_COORDINATE_HOOK_ADDR_USA + 8)
 }
 
 int _trampolines [FUNC_HOOK_NUM * 3] = {};
@@ -332,13 +352,24 @@ static int _is_patched = 0;
 #define is_patched USER_ALIAS_OF(_is_patched)
 
 void _start(int ignore_mode) {
+    IS_TAG_MODE = REF_BYTE(REF_BYTE(REGION_ADDR) == 0x0 ? GAME_MODE_ADDR_JPN : GAME_MODE_ADDR_USA) == 0x02;
     if (!is_patched && (IS_TAG_MODE || ignore_mode)) {
         is_patched = 1;
         int hook_i = 0;
-        patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR, J_USER(&player_info_hook)};
-        patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR, J_USER(&load_coordinate_hook)};
-        patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR, J_USER(&set_p1_pos_hook)};
-        patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR, J_USER(&set_p2_pos_hook)};
+        
+        if (REF_BYTE(REGION_ADDR) == 0x0) {
+            patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_JPN, J_USER(&player_info_hook)};
+            patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR_JPN, J_USER(&load_coordinate_hook)};
+            patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR_JPN, J_USER(&set_p1_pos_hook)};
+            patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR_JPN, J_USER(&set_p2_pos_hook)};
+        }
+        else{
+            patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_USA, J_USER(&player_info_hook)};
+            patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR_USA, J_USER(&load_coordinate_hook)};
+            patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR_USA, J_USER(&set_p1_pos_hook)};
+            patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR_USA, J_USER(&set_p2_pos_hook)};
+        }
+        
         for (Patch *patch = patches; patch->addr; patch++) {
             patch->ori_inst = REF(patch->addr);
             patch_instruction(patch->addr, patch->inst);
@@ -362,8 +393,6 @@ void tag_mode_entered_hook() {
 }
 
 void init(int user_text_addr) {
-    init_addr();
-    //init_patches();
     patch_instruction(SET_GAME_MODE_HOOK_ADDR, J(make_trampoline(0, user_text_addr, (char*)&mode_changed_hook - &__executable_start + user_text_addr)));
     patch_instruction(LOAD_TAG_MODE_HOOK_ADDR, J(make_trampoline(0, user_text_addr, (char*)&tag_mode_entered_hook - &__executable_start + user_text_addr)));
 }
@@ -373,12 +402,15 @@ void load_module_to_user_space() {
     SceUID block_id = sceKernelAllocPartitionMemory(PSP_MEMORY_PARTITION_USER, "", PSP_SMEM_High, elf_size, NULL);
     int user_text_addr = (u32)sceKernelGetBlockHeadAddr(block_id);
     memcpy((void*)user_text_addr, &__executable_start, elf_size);
+    //init_addr();
+    //init_addr();
     init(user_text_addr);
 }
 
 static STMOD_HANDLER previous;
 int OnModuleStart(SceModule2 *mod) {
 	if (strcmp(mod->modname, "Model") == 0) {
+        init_patch_buffer();
 	    load_module_to_user_space();
 	}
 	if (!previous)
@@ -391,6 +423,7 @@ int module_start(SceSize args, void* argp) {
     sceIoDevctl("kemulator:", EMULATOR_DEVCTL__IS_EMULATOR, NULL, 0, &is_emulator, 4);
 
     if (is_emulator) {
+        init_patch_buffer();
         load_module_to_user_space();
     } else {
         previous = sctrlHENSetStartModuleHandler(OnModuleStart);
