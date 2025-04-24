@@ -48,6 +48,9 @@ PSP_MODULE_INFO(MODULE_NAME, 0x1007, 1, 0);
 #define LOAD_TAG_MODE_HOOK_ADDR_JPN 0x089fa448
 #define LOAD_TAG_MODE_HOOK_ADDR_USA 0x089fadc8
 
+#define SET_ATTACK_VALUE_HOOK_ADDR_JPN 0x088963b8
+#define SET_ATTACK_VALUE_HOOK_ADDR_USA 0x08896CE8
+
 // #define GAME_MODE_ADDR       (REF_BYTE(REGION_ADDR) == 0x0 ? GAME_MODE_ADDR_JPN       : GAME_MODE_ADDR_USA)
 // #define PLAYER_BASE_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_BASE_ADDR_JPN     : PLAYER_BASE_ADDR_USA)
 // #define MISSION_CODE_ADDR    (REF_BYTE(REGION_ADDR) == 0x0 ? MISSION_CODE_ADDR_JPN    : MISSION_CODE_ADDR_USA)
@@ -70,9 +73,9 @@ typedef struct {
     int ori_inst;
 } Patch;
 
-#define FUNC_HOOK_NUM 4
+#define FUNC_HOOK_NUM 5
 
-#define MAX_INST_PATCHES 22
+#define MAX_INST_PATCHES 23
 #define MAX_PATCHES      (FUNC_HOOK_NUM + MAX_INST_PATCHES + 1)
 
 static Patch instruction_patch_set1[] = {
@@ -109,6 +112,8 @@ static Patch instruction_patch_set1[] = {
     // 2P Balance
     {0x08892A04, 0x34050180},
     {0x08892A00, 0x34040080},
+    // DEF Balance
+    {0x08896258, 0x34020150},
     {}, // end
 };
 
@@ -146,6 +151,8 @@ static Patch instruction_patch_set2[] = {
     // 2P Balance
     {0x08893334, 0x34050180},
     {0x08893330, 0x34040080},
+    // DEF Balance
+    {0x08896B88, 0x34020150},
     {}, // end
 };
 
@@ -232,6 +239,42 @@ typedef struct {
     : "r" (addr) \
     : "v0" \
 );
+
+void set_attack_value_hook() {
+
+    int value;
+    int multiplier;
+    
+    asm("lh %0, 0x6($s1)" : "=r"(value));
+    asm("lh %0, 0x34($s1)" : "=r"(multiplier));
+
+    if (value > 65) {
+        value -= 20;
+    }
+    if (value > 8 && value < 20) {
+        value = 6;
+    }
+    if (multiplier < 580){
+        multiplier = 580;
+    }
+    if (multiplier > 670){
+        if (value < 20) {
+            multiplier = 580;
+        }
+        else{
+            if (value < 65){
+            multiplier += 50;
+            }
+        }
+    }
+
+    asm("move $s5, %0" :: "r"(value));
+    asm("move $a0, %0" :: "r"(multiplier));
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        return_to(SET_ATTACK_VALUE_HOOK_ADDR_JPN + 4)
+    else
+        return_to(SET_ATTACK_VALUE_HOOK_ADDR_USA + 4)
+}
 
 int _p1_pos_idx;
 int _p2_pos_idx;
@@ -362,12 +405,14 @@ void _start(int ignore_mode) {
             patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR_JPN, J_USER(&load_coordinate_hook)};
             patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR_JPN, J_USER(&set_p1_pos_hook)};
             patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR_JPN, J_USER(&set_p2_pos_hook)};
+            patches[hook_i++] = (Patch) {SET_ATTACK_VALUE_HOOK_ADDR_JPN, J_USER(&set_attack_value_hook)};
         }
         else{
             patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_USA, J_USER(&player_info_hook)};
             patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR_USA, J_USER(&load_coordinate_hook)};
             patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR_USA, J_USER(&set_p1_pos_hook)};
             patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR_USA, J_USER(&set_p2_pos_hook)};
+            patches[hook_i++] = (Patch) {SET_ATTACK_VALUE_HOOK_ADDR_USA, J_USER(&set_attack_value_hook)};
         }
         
         for (Patch *patch = patches; patch->addr; patch++) {
