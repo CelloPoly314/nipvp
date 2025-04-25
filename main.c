@@ -27,6 +27,9 @@ PSP_MODULE_INFO(MODULE_NAME, 0x1007, 1, 0);
 #define PLAYER_BASE_ADDR_JPN 0x8bD898C
 #define PLAYER_BASE_ADDR_USA 0x8bD9B54
 
+#define PLAYER_BASE_ADDR2_JPN 0x08bdace4
+#define PLAYER_BASE_ADDR2_USA 0x08bdace4
+
 #define MISSION_CODE_ADDR_JPN 0x8c05884
 #define MISSION_CODE_ADDR_USA 0x8c06A44
 
@@ -51,13 +54,6 @@ PSP_MODULE_INFO(MODULE_NAME, 0x1007, 1, 0);
 #define SET_ATTACK_VALUE_HOOK_ADDR_JPN 0x088963b8
 #define SET_ATTACK_VALUE_HOOK_ADDR_USA 0x08896CE8
 
-// #define GAME_MODE_ADDR       (REF_BYTE(REGION_ADDR) == 0x0 ? GAME_MODE_ADDR_JPN       : GAME_MODE_ADDR_USA)
-// #define PLAYER_BASE_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_BASE_ADDR_JPN     : PLAYER_BASE_ADDR_USA)
-// #define MISSION_CODE_ADDR    (REF_BYTE(REGION_ADDR) == 0x0 ? MISSION_CODE_ADDR_JPN    : MISSION_CODE_ADDR_USA)
-// #define PLAYER_INIT_HOOK_ADDR       (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_INIT_HOOK_ADDR_JPN       : PLAYER_INIT_HOOK_ADDR_USA)
-// #define PLAYER_1_SET_POS_HOOK_ADDR  (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_1_SET_POS_HOOK_ADDR_JPN  : PLAYER_1_SET_POS_HOOK_ADDR_USA)
-// #define PLAYER_2_SET_POS_HOOK_ADDR  (REF_BYTE(REGION_ADDR) == 0x0 ? PLAYER_2_SET_POS_HOOK_ADDR_JPN  : PLAYER_2_SET_POS_HOOK_ADDR_USA)
-// #define LOAD_COORDINATE_HOOK_ADDR   (REF_BYTE(REGION_ADDR) == 0x0 ? LOAD_COORDINATE_HOOK_ADDR_JPN   : LOAD_COORDINATE_HOOK_ADDR_USA)
 #define SET_GAME_MODE_HOOK_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? SET_GAME_MODE_HOOK_ADDR_JPN     : SET_GAME_MODE_HOOK_ADDR_USA)
 #define LOAD_TAG_MODE_HOOK_ADDR     (REF_BYTE(REGION_ADDR) == 0x0 ? LOAD_TAG_MODE_HOOK_ADDR_JPN     : LOAD_TAG_MODE_HOOK_ADDR_USA)
 
@@ -184,23 +180,8 @@ void init_patch_buffer(void) {
 
 #define patches ((Patch*)USER_ADDR(&_patches))
 
-void player_info_hook() {
-    int a;
-    if (REF_BYTE(REGION_ADDR) == 0x0)
-        a = REF(PLAYER_BASE_ADDR_JPN);
-    else
-        a = REF(PLAYER_BASE_ADDR_USA);
-    a = REF(a + 4);
-    int b = REF(a);
-    int c = REF(b);
-    a = REF(c + 0x90);
-    a = REF(a);
+#define IS_VALID_ADDR(x) ((int)(x) >= 0x08800000 && (int)(x) <= 0x0A000000)
 
-    // PVP
-    REF_BYTE(c + 0xa4) = 2;
-    REF_BYTE(a + 0x8) = 2;
-    REF_BYTE(a + 0x538) = 2;
-}
 
 typedef struct {
     int idx;
@@ -239,6 +220,27 @@ typedef struct {
     : "r" (addr) \
     : "v0" \
 );
+
+
+void player_info_hook() {
+    int a;
+    if (REF_BYTE(REGION_ADDR) == 0x0)
+        a = REF(PLAYER_BASE_ADDR_JPN);
+    else
+        a = REF(PLAYER_BASE_ADDR_USA);
+
+    a = REF(a + 4);
+    int b = REF(a);
+    int c = REF(b);
+    a = REF(c + 0x90);
+    a = REF(a);
+
+    // PVP
+    REF_BYTE(a + 0x538) = 2;
+    REF_BYTE(c + 0xa4) = 2;
+    REF_BYTE(a + 0x8) = 2;
+    
+}
 
 void set_attack_value_hook() {
 
@@ -300,7 +302,6 @@ void set_p1_pos_hook() {
     save_to_reg(a1, p1_pos_idx);
     restore_from_stack(a2);
     restore_from_stack(a0);
-    //return_to(PLAYER_1_SET_POS_HOOK_ADDR + 8);
     if (REF_BYTE(REGION_ADDR) == 0x0)
         return_to(PLAYER_1_SET_POS_HOOK_ADDR_JPN + 8)
     else
@@ -311,7 +312,6 @@ void set_p2_pos_hook() {
     save_to_stack(a0);
     save_to_reg(a1, p2_pos_idx);
     restore_from_stack(a0);
-    //return_to(PLAYER_2_SET_POS_HOOK_ADDR + 8);
     if (REF_BYTE(REGION_ADDR) == 0x0)
         return_to(PLAYER_2_SET_POS_HOOK_ADDR_JPN + 8)
     else
@@ -354,7 +354,7 @@ void load_coordinate_hook() {
     exit:
     restore_from_stack(a0);
     asm("lui $a1,0x3f80");  // original instruction
-    //return_to(LOAD_COORDINATE_HOOK_ADDR + 8);
+
     if (REF_BYTE(REGION_ADDR) == 0x0)
         return_to(LOAD_COORDINATE_HOOK_ADDR_JPN + 8)
     else
@@ -447,8 +447,6 @@ void load_module_to_user_space() {
     SceUID block_id = sceKernelAllocPartitionMemory(PSP_MEMORY_PARTITION_USER, "", PSP_SMEM_High, elf_size, NULL);
     int user_text_addr = (u32)sceKernelGetBlockHeadAddr(block_id);
     memcpy((void*)user_text_addr, &__executable_start, elf_size);
-    //init_addr();
-    //init_addr();
     init(user_text_addr);
 }
 
