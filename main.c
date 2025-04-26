@@ -27,14 +27,17 @@ PSP_MODULE_INFO(MODULE_NAME, 0x1007, 1, 0);
 #define PLAYER_BASE_ADDR_JPN 0x8bD898C
 #define PLAYER_BASE_ADDR_USA 0x8bD9B54
 
-#define PLAYER_BASE_ADDR2_JPN 0x08bdace4
-#define PLAYER_BASE_ADDR2_USA 0x08bdace4
+// #define PLAYER_BASE_ADDR2_JPN 0x08bdace4
+// #define PLAYER_BASE_ADDR2_USA 0x08bdace4
 
 #define MISSION_CODE_ADDR_JPN 0x8c05884
 #define MISSION_CODE_ADDR_USA 0x8c06A44
 
-#define PLAYER_INIT_HOOK_ADDR_JPN 0x0895bb28
-#define PLAYER_INIT_HOOK_ADDR_USA 0x0895c458
+#define PLAYER_INIT_HOOK_ADDR_JPN 0x08947a2c
+#define PLAYER_INIT_HOOK_ADDR_USA 0x0894835c
+
+#define PLAYER_INIT_HOOK_ADDR_2_JPN 0x0895bb28
+#define PLAYER_INIT_HOOK_ADDR_2_USA 0x0895c458
 
 #define PLAYER_1_SET_POS_HOOK_ADDR_JPN 0x08901470
 #define PLAYER_1_SET_POS_HOOK_ADDR_USA 0x08901DA0
@@ -69,7 +72,7 @@ typedef struct {
     int ori_inst;
 } Patch;
 
-#define FUNC_HOOK_NUM 5
+#define FUNC_HOOK_NUM 6
 
 #define MAX_INST_PATCHES 23
 #define MAX_PATCHES      (FUNC_HOOK_NUM + MAX_INST_PATCHES + 1)
@@ -221,25 +224,37 @@ typedef struct {
     : "v0" \
 );
 
+static int _counter = 0;
+#define counter USER_ALIAS_OF(_counter)
 
 void player_info_hook() {
-    int a;
-    if (REF_BYTE(REGION_ADDR) == 0x0)
-        a = REF(PLAYER_BASE_ADDR_JPN);
-    else
-        a = REF(PLAYER_BASE_ADDR_USA);
 
-    a = REF(a + 4);
-    int b = REF(a);
-    int c = REF(b);
-    a = REF(c + 0x90);
-    a = REF(a);
-
-    // PVP
-    REF_BYTE(a + 0x538) = 2;
-    REF_BYTE(c + 0xa4) = 2;
-    REF_BYTE(a + 0x8) = 2;
+    if (counter == 0) {
+        asm volatile (
+            "li   $a3, 0x2\n"
+            "sw   $a3, 0xA4($s0)\n"
+        );
+    }
+    counter++;
+    if (counter >= 2)
+        counter = 0;
     
+    asm volatile("jr $ra\n");
+}
+
+void player_info_hook_2() {
+    if (counter == 0) {
+        asm volatile (
+            "li   $a3, 0x2\n"
+            "sw   $a3, 0x538($s0)\n"
+            "sw   $a3, 0x8($s0)\n"
+        );
+    }
+    counter++;
+    if (counter >= 2)
+        counter = 0;
+    
+    asm volatile("jr $ra\n");
 }
 
 void set_attack_value_hook() {
@@ -402,6 +417,7 @@ void _start(int ignore_mode) {
         
         if (REF_BYTE(REGION_ADDR) == 0x0) {
             patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_JPN, J_USER(&player_info_hook)};
+            patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_2_JPN, J_USER(&player_info_hook_2)};
             patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR_JPN, J_USER(&load_coordinate_hook)};
             patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR_JPN, J_USER(&set_p1_pos_hook)};
             patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR_JPN, J_USER(&set_p2_pos_hook)};
@@ -409,6 +425,7 @@ void _start(int ignore_mode) {
         }
         else{
             patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_USA, J_USER(&player_info_hook)};
+            patches[hook_i++] = (Patch) {PLAYER_INIT_HOOK_ADDR_2_USA, J_USER(&player_info_hook_2)};
             patches[hook_i++] = (Patch) {LOAD_COORDINATE_HOOK_ADDR_USA, J_USER(&load_coordinate_hook)};
             patches[hook_i++] = (Patch) {PLAYER_1_SET_POS_HOOK_ADDR_USA, J_USER(&set_p1_pos_hook)};
             patches[hook_i++] = (Patch) {PLAYER_2_SET_POS_HOOK_ADDR_USA, J_USER(&set_p2_pos_hook)};
